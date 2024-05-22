@@ -19,6 +19,7 @@ import (
 	oam "github.com/owasp-amass/open-asset-model"
 	"github.com/owasp-amass/open-asset-model/domain"
 	oamnet "github.com/owasp-amass/open-asset-model/network"
+	"github.com/owasp-amass/resolve"
 )
 
 const MaxHandlerInstances int = 500
@@ -31,6 +32,13 @@ var subre *regexp.Regexp
 
 func init() {
 	done = make(chan struct{})
+
+	rate := resolve.NewRateTracker()
+	trusted, _ = trustedResolvers()
+	trusted.SetRateTracker(rate)
+
+	guesses = queue.NewQueue()
+	go processGuesses()
 
 	dbQueue = queue.NewQueue()
 	go processDBCallbacks()

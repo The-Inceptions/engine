@@ -6,31 +6,19 @@ package support
 
 import (
 	"context"
-	"encoding/csv"
 	"errors"
-	"fmt"
-	"io"
 	"math/rand"
-	"net"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caffix/queue"
-	"github.com/caffix/stringset"
 	"github.com/miekg/dns"
 	"github.com/owasp-amass/engine/graph"
-	"github.com/owasp-amass/engine/net/http"
 	et "github.com/owasp-amass/engine/types"
 	"github.com/owasp-amass/open-asset-model/domain"
 	"github.com/owasp-amass/resolve"
 	"golang.org/x/net/publicsuffix"
 )
-
-// queriesPerPublicResolver is the number of queries sent to each public DNS resolver per second.
-const queriesPerPublicResolver = 5
-
-const minResolverReliability = 0.85
 
 type guess struct {
 	event *et.Event
@@ -87,8 +75,6 @@ var baselineResolvers = []baseline{
 	{"74.82.42.42", 5},      // Hurricane Electric Primary
 	{"94.130.180.225", 5},   // DNS for Family Primary
 	{"78.47.64.161", 5},     // DNS for Family Secondary
-	{"185.236.104.104", 5},  // FlashStart Primary
-	{"185.236.105.105", 5},  // FlashStart Secondary
 	{"80.80.80.80", 5},      // Freenom World Primary
 	{"80.80.81.81", 5},      // Freenom World Secondary
 	{"84.200.69.80", 5},     // DNS.WATCH Primary
@@ -102,29 +88,10 @@ var baselineResolvers = []baseline{
 }
 
 var trusted *resolve.Resolvers
-var untrusted *resolve.Resolvers
 var guesses queue.Queue
 
-func init() {
-	rate := resolve.NewRateTracker()
-
-	trusted, _ = trustedResolvers()
-	trusted.SetRateTracker(rate)
-	untrusted, _ = untrustedResolvers()
-	untrusted.SetRateTracker(rate)
-
-	if untrusted != nil {
-		guesses = queue.NewQueue()
-		go processGuesses()
-	}
-}
-
-func NumTrustedResolvers() int {
+func NumResolvers() int {
 	return trusted.Len()
-}
-
-func NumUntrustedResolvers() int {
-	return untrusted.Len()
 }
 
 func PerformQuery(name string, qtype uint16) ([]*resolve.ExtractedAnswer, error) {
@@ -144,38 +111,15 @@ func PerformQuery(name string, qtype uint16) ([]*resolve.ExtractedAnswer, error)
 	return nil, err
 }
 
-func PerformUntrustedQuery(name string, qtype uint16) ([]*resolve.ExtractedAnswer, error) {
-	msg := resolve.QueryMsg(name, qtype)
-	if qtype == dns.TypePTR {
-		msg = resolve.ReverseMsg(name)
-	}
-
-	resp, err := dnsQuery(msg, untrusted, 50)
-	if err == nil && resp != nil && !wildcardDetected(resp, untrusted) {
-		if ans := resolve.ExtractAnswers(resp); len(ans) > 0 {
-			if rr := resolve.AnswersByType(ans, qtype); len(rr) > 0 {
-				return normalize(rr), nil
-			}
-		}
-	}
-	return nil, err
-}
-
 func SubmitFQDNGuess(e *et.Event, name string) {
-	if untrusted != nil {
-		guesses.Append(&guess{
-			event: e,
-			name:  name,
-		})
-	}
+	guesses.Append(&guess{
+		event: e,
+		name:  name,
+	})
 }
 
 func processGuesses() {
-	if untrusted == nil {
-		return
-	}
-
-	num := untrusted.Len()
+	num := trusted.Len()
 	ch := make(chan struct{}, num)
 	for i := 0; i < num; i++ {
 		ch <- struct{}{}
@@ -207,7 +151,7 @@ func guessAttempt(e *et.Event, name string, ch chan struct{}) {
 		if e.Session.Done() {
 			return
 		}
-		if ans, err := PerformUntrustedQuery(name, qtype); err == nil && ans != nil {
+		if ans, err := PerformQuery(name, qtype); err == nil && ans != nil {
 			guessCallback(e, name)
 		}
 	}
@@ -289,97 +233,4 @@ func trustedResolvers() (*resolve.Resolvers, int) {
 		return pool, pool.Len()
 	}
 	return nil, 0
-}
-
-func untrustedResolvers() (*resolve.Resolvers, int) {
-	resolvers, err := publicDNSResolvers()
-	if err != nil {
-		return nil, 0
-	}
-
-	resolvers = checkAddresses(stringset.Deduplicate(resolvers))
-	if len(resolvers) == 0 {
-		return nil, 0
-	}
-
-	if pool := resolve.NewResolvers(); pool != nil {
-		_ = pool.AddResolvers(queriesPerPublicResolver, resolvers...)
-		pool.SetTimeout(5 * time.Second)
-		pool.SetDetectionResolver(50, "8.8.8.8")
-		pool.SetThresholdOptions(&resolve.ThresholdOptions{
-			ThresholdValue:      20,
-			CountTimeouts:       true,
-			CountFormatErrors:   true,
-			CountServerFailures: true,
-			CountNotImplemented: true,
-			CountQueryRefusals:  true,
-		})
-		pool.ClientSubnetCheck()
-		return pool, pool.Len()
-	}
-	return nil, 0
-}
-
-func checkAddresses(addrs []string) []string {
-	ips := []string{}
-
-	for _, addr := range addrs {
-		ip, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			ip = addr
-			port = "53"
-		}
-		if net.ParseIP(ip) == nil {
-			continue
-		}
-		ips = append(ips, net.JoinHostPort(ip, port))
-	}
-	return ips
-}
-
-// publicDNSResolvers obtains the public DNS server addresses from public-dns.info.
-func publicDNSResolvers() ([]string, error) {
-	url := "https://public-dns.info/nameservers-all.csv"
-	resp, err := http.RequestWebPage(context.Background(), &http.Request{URL: url})
-	if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("failed to obtain the Public DNS csv file at %s: %v", url, err)
-	}
-
-	var resolvers []string
-	var ipIdx, reliabilityIdx int
-	r := csv.NewReader(strings.NewReader(resp.Body))
-	for i := 0; ; i++ {
-		record, err := r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			continue
-		}
-		if i == 0 {
-			for idx, val := range record {
-				if val == "ip_address" {
-					ipIdx = idx
-				} else if val == "reliability" {
-					reliabilityIdx = idx
-				}
-			}
-			continue
-		}
-		if rel, err := strconv.ParseFloat(record[reliabilityIdx], 64); err == nil && rel >= minResolverReliability {
-			resolvers = append(resolvers, record[ipIdx])
-		}
-	}
-
-	var results []string
-loop:
-	for _, addr := range resolvers {
-		for _, br := range baselineResolvers {
-			if addr == br.address {
-				continue loop
-			}
-		}
-		results = append(results, strings.TrimSpace(addr))
-	}
-	return results, nil
 }

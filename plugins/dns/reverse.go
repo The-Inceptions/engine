@@ -150,7 +150,7 @@ func (d *dnsReverse) sweep(e *et.Event, address *oamnet.IPAddress) {
 func (d *dnsReverse) sweepAddressRoutine(e *et.Event, addr string) {
 	defer func() { d.release <- struct{}{} }()
 
-	if rr, err := support.PerformUntrustedQuery(addr, dns.TypePTR); err == nil &&
+	if rr, err := support.PerformQuery(addr, dns.TypePTR); err == nil &&
 		len(rr) > 0 && e.Session.Config().IsDomainInScope(rr[0].Data) {
 		queueSweepCallback(e, addr)
 	}

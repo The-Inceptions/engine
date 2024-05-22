@@ -53,7 +53,7 @@ func (d *dnsPlugin) Start(r et.Registry) error {
 		Plugin:       d,
 		Name:         d.apex.name,
 		Priority:     9,
-		MaxInstances: support.NumTrustedResolvers() * 2,
+		MaxInstances: support.NumResolvers() * 2,
 		Transforms:   []string{"fqdn"},
 		EventType:    oam.FQDN,
 		Callback:     d.apex.handler,
