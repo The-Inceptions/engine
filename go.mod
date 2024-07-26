@@ -17,9 +17,9 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/miekg/dns v1.1.61
-	github.com/owasp-amass/asset-db v0.3.6-0.20240118034832-9f35c5a2dea6
-	github.com/owasp-amass/config v0.2.1
-	github.com/owasp-amass/open-asset-model v0.2.1-0.20240113165517-79f7a07407c7
+	github.com/owasp-amass/asset-db v0.3.8
+	github.com/owasp-amass/config v0.3.0
+	github.com/owasp-amass/open-asset-model v0.3.1
 	github.com/owasp-amass/resolve v0.8.0
 	github.com/rubenv/sql-migrate v1.7.0
 	github.com/tylertreat/BoomFilters v0.0.0-20210315201527-1a82519a3e43
@@ -89,7 +89,6 @@ require (
 	github.com/sosodev/duration v1.3.1 // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
 	golang.org/x/crypto v0.25.0 // indirect
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.19.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
