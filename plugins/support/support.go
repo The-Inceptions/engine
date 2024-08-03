@@ -17,6 +17,7 @@ import (
 	"github.com/owasp-amass/engine/net/dns"
 	et "github.com/owasp-amass/engine/types"
 	oam "github.com/owasp-amass/open-asset-model"
+	"github.com/owasp-amass/open-asset-model/contact"
 	"github.com/owasp-amass/open-asset-model/domain"
 	oamnet "github.com/owasp-amass/open-asset-model/network"
 	"github.com/owasp-amass/resolve"
@@ -61,6 +62,76 @@ func ScrapeSubdomainNames(s string) []string {
 
 func Shutdown() {
 	close(done)
+}
+
+func GetAPI(name string, e *et.Event) (string, error) {
+	var api string
+	// TODO: Add support for multiple API keys
+	dsc := e.Session.Config().GetDataSourceConfig(name)
+	for _, v := range dsc.Creds {
+		api = v.Apikey
+		return api, nil
+	}
+
+	return "", errors.New("no API key found")
+
+}
+
+func EmailParts(e string) *contact.EmailAddress {
+	parts := strings.Split(e, "@")
+	if len(parts) != 2 {
+		return nil
+	}
+	return &contact.EmailAddress{
+		Address:   e,
+		LocalPart: parts[0],
+		Domain:    parts[1],
+	}
+}
+
+func ProcessEmail(e *et.Event, records []string, verified bool) {
+	now := time.Now()
+
+	var emailAsset *dbt.Asset
+
+	for _, record := range records {
+		email := EmailParts(record)
+		if email == nil {
+			continue
+		}
+		// if the subdomain is not in scope, skip it
+		name := strings.ToLower(strings.TrimSpace(email.Domain))
+		if name != "" && e.Session.Config().IsDomainInScope(name) {
+
+			if verified {
+				// add the email to the database, in return we will have an asset to add to the engine
+				emailAsset, _ = e.Session.DB().Create(nil, "", email)
+			} else {
+				// if the email is not verified, or an error occurs, make a new event
+				emailAsset = &dbt.Asset{
+					CreatedAt: now,
+					LastSeen:  now,
+					Asset:     email,
+				}
+				// dispatch the event to the engine, it should go through verifiers
+				_ = e.Dispatcher.DispatchEvent(&et.Event{
+					Name:    email.Address,
+					Asset:   emailAsset,
+					Session: e.Session,
+				})
+			}
+			// add the email to the cache no matter what
+			e.Session.Cache().SetAsset(emailAsset)
+		}
+	}
+}
+
+func IsVerify(e *et.Event, name string) bool {
+	matches, err := e.Session.Config().CheckTransformations("email", "email", name)
+	if err != nil || matches.Len() == 0 {
+		return false
+	}
+	return true
 }
 
 func IPToNetblockWithAttempts(session et.Session, ip *oamnet.IPAddress, num int, d time.Duration) (*oamnet.Netblock, error) {
