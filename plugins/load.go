@@ -24,6 +24,9 @@ var pluginNewFuncs = []func() et.Plugin{
 	api.NewURLScan,
 	api.NewVirusTotal,
 	api.NewZetalytics,
+	api.NewHunterIO,
+	api.NewProspeo,
+	api.NewGrepApp,
 	archive.NewWayback,
 	dns.NewDNS,
 	scrape.NewBing,
@@ -33,6 +36,7 @@ var pluginNewFuncs = []func() et.Plugin{
 	scrape.NewSiteDossier,
 	NewIPNetblock,
 	NewKnownFQDN,
+	NewVerifiedEmail,
 }
 
 func LoadAndStartPlugins(r et.Registry) error {

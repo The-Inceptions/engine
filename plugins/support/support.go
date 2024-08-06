@@ -17,6 +17,7 @@ import (
 	"github.com/owasp-amass/engine/net/dns"
 	et "github.com/owasp-amass/engine/types"
 	oam "github.com/owasp-amass/open-asset-model"
+	"github.com/owasp-amass/open-asset-model/contact"
 	"github.com/owasp-amass/open-asset-model/domain"
 	oamnet "github.com/owasp-amass/open-asset-model/network"
 	"github.com/owasp-amass/resolve"
@@ -61,6 +62,74 @@ func ScrapeSubdomainNames(s string) []string {
 
 func Shutdown() {
 	close(done)
+}
+
+func GetAPI(name string, e *et.Event) (string, error) {
+	var api string
+	// TODO: Add support for multiple API keys
+	dsc := e.Session.Config().GetDataSourceConfig(name)
+	for _, v := range dsc.Creds {
+		api = v.Apikey
+		return api, nil
+	}
+
+	return "", errors.New("no API key found")
+
+}
+
+func EmailParts(e string) *contact.EmailAddress {
+	parts := strings.Split(e, "@")
+	if len(parts) != 2 {
+		return nil
+	}
+	return &contact.EmailAddress{
+		Address:   e,
+		LocalPart: parts[0],
+		Domain:    parts[1],
+	}
+}
+
+func ProcessEmail(e *et.Event, records []string) {
+	var meta interface{}
+	now := time.Now()
+
+	for _, record := range records {
+		email := EmailParts(record)
+		if email == nil {
+			continue
+		}
+		// if the subdomain is not in scope, skip it
+		name := strings.ToLower(strings.TrimSpace(email.Domain))
+		if name != "" && e.Session.Config().IsDomainInScope(name) {
+
+			if e.Meta == nil {
+				meta = &et.EmailMeta{
+					VerifyAttempted: false,
+					Verified:        false,
+				}
+			} else {
+				meta = e.Meta
+			}
+			if emailAsset, found := e.Session.Cache().GetAsset(email); !found {
+				if emailAsset == nil {
+					emailAsset = &dbt.Asset{
+						CreatedAt: now,
+						LastSeen:  now,
+						Asset:     email,
+					}
+				}
+				_ = e.Dispatcher.DispatchEvent(&et.Event{
+					Name:    email.Address,
+					Meta:    meta,
+					Asset:   emailAsset,
+					Session: e.Session,
+				})
+				e.Session.Cache().SetAsset(emailAsset)
+				// dispatch the event to the engine, it should go through verifiers
+			}
+
+		}
+	}
 }
 
 func IPToNetblockWithAttempts(session et.Session, ip *oamnet.IPAddress, num int, d time.Duration) (*oamnet.Netblock, error) {

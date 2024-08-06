@@ -12,6 +12,7 @@ import (
 
 	"github.com/owasp-amass/asset-db/types"
 	oam "github.com/owasp-amass/open-asset-model"
+	"github.com/owasp-amass/open-asset-model/contact"
 	"github.com/owasp-amass/open-asset-model/domain"
 	"github.com/owasp-amass/open-asset-model/network"
 )
@@ -184,6 +185,8 @@ func getKey(asset oam.Asset) string {
 		key = strconv.Itoa(v.Number)
 	case *network.RIROrganization:
 		key = v.Name
+	case *contact.EmailAddress:
+		key = v.Address
 	}
 
 	return strings.ToLower(key)
