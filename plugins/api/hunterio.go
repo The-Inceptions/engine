@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -52,7 +53,7 @@ func (h *hunterIO) Start(r et.Registry) error {
 	if err := r.RegisterHandler(&et.Handler{
 		Plugin:     h,
 		Name:       name,
-		Transforms: []string{"email"},
+		Transforms: []string{"emailaddress"},
 		EventType:  oam.FQDN,
 		Callback:   h.check,
 	}); err != nil {
@@ -63,8 +64,8 @@ func (h *hunterIO) Start(r et.Registry) error {
 	if err := r.RegisterHandler(&et.Handler{
 		Plugin:     h,
 		Name:       name,
-		Transforms: []string{},
-		EventType:  oam.Email,
+		Transforms: []string{"emailaddress"},
+		EventType:  oam.EmailAddress,
 		Callback:   h.verify,
 	}); err != nil {
 		return err
@@ -84,10 +85,16 @@ func (h *hunterIO) verify(e *et.Event) error {
 		return errors.New("invalid asset type")
 	}
 
+	matches, err := e.Session.Config().CheckTransformations(
+		"emailaddress", "emailaddress", h.name+"-Email-Verification-Handler")
+	if err != nil || matches.Len() == 0 {
+		return err
+	}
+
 	h.rlimit.Take()
 
 	api, err := support.GetAPI(h.name, e)
-	if err != nil {
+	if err != nil || api == "" {
 		return err
 	}
 
@@ -109,10 +116,16 @@ func (h *hunterIO) verify(e *et.Event) error {
 		return err
 	}
 
+	eventMeta, ok := e.Meta.(*et.EmailMeta)
+	if !ok {
+		return fmt.Errorf("unexpected Meta type: %T", e.Meta)
+	}
+	eventMeta.VerifyAttempted = true
+
 	// add it so that it skips risky
 	if result.Data.Status != "unknown" && result.Data.Status != "invalid" &&
 		result.Data.Status != "disposable" {
-		support.ProcessEmail(e, []string{email.Address}, true)
+		eventMeta.Verified = true
 	}
 
 	return nil
@@ -127,7 +140,7 @@ func (h *hunterIO) check(e *et.Event) error {
 	domlt := strings.ToLower(strings.TrimSpace(fqdn.Name))
 
 	matches, err := e.Session.Config().CheckTransformations(
-		"fqdn", "email", h.name)
+		"fqdn", "emailaddress", h.name+"-Email-Generation-Handler")
 	if err != nil || matches.Len() == 0 {
 		return err
 	}
@@ -138,14 +151,14 @@ func (h *hunterIO) check(e *et.Event) error {
 		return err
 	} else {
 		api, err := h.account_type(e)
-		if err != nil {
+		if err != nil || api == "" {
 			return err
 		}
 		results, err := h.query(domlt, count, api)
 		if err != nil {
 			return err
 		}
-		support.ProcessEmail(e, results, !support.IsVerify(e, h.name))
+		support.ProcessEmail(e, results)
 	}
 	return nil
 }
@@ -153,7 +166,7 @@ func (h *hunterIO) check(e *et.Event) error {
 func (h *hunterIO) account_type(e *et.Event) (string, error) {
 
 	api, err := support.GetAPI(h.name, e)
-	if err != nil {
+	if err != nil || api == "" {
 		return "", err
 	}
 

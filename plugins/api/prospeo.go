@@ -48,7 +48,7 @@ func (p *Prospeo) Start(r et.Registry) error {
 	if err := r.RegisterHandler(&et.Handler{
 		Plugin:     p,
 		Name:       name,
-		Transforms: []string{"email"},
+		Transforms: []string{"emailaddress"},
 		EventType:  oam.FQDN,
 		Callback:   p.check,
 	}); err != nil {
@@ -73,7 +73,7 @@ func (p *Prospeo) check(e *et.Event) error {
 	domlt := strings.ToLower(strings.TrimSpace(fqdn.Name))
 
 	matches, err := e.Session.Config().CheckTransformations(
-		"fqdn", "email", p.name)
+		"fqdn", "emailaddress", p.name)
 	if err != nil || matches.Len() == 0 {
 		return err
 	}
@@ -81,7 +81,7 @@ func (p *Prospeo) check(e *et.Event) error {
 	p.rlimit.Take()
 
 	api, rcreds, err := p.account_type(e)
-	if err != nil {
+	if err != nil || api == "" {
 		return err
 	}
 
@@ -95,7 +95,7 @@ func (p *Prospeo) check(e *et.Event) error {
 		return err
 	}
 
-	support.ProcessEmail(e, emails, !support.IsVerify(e, p.name))
+	support.ProcessEmail(e, emails)
 	return nil
 
 }

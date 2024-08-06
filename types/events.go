@@ -15,8 +15,14 @@ import (
 type Event struct {
 	Name       string
 	Asset      *dbt.Asset
+	Meta       interface{}
 	Dispatcher Dispatcher
 	Session    Session
+}
+
+type EmailMeta struct {
+	VerifyAttempted bool
+	Verified        bool
 }
 
 type Dispatcher interface {

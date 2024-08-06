@@ -89,10 +89,9 @@ func EmailParts(e string) *contact.EmailAddress {
 	}
 }
 
-func ProcessEmail(e *et.Event, records []string, verified bool) {
+func ProcessEmail(e *et.Event, records []string) {
+	var meta interface{}
 	now := time.Now()
-
-	var emailAsset *dbt.Asset
 
 	for _, record := range records {
 		email := EmailParts(record)
@@ -103,35 +102,34 @@ func ProcessEmail(e *et.Event, records []string, verified bool) {
 		name := strings.ToLower(strings.TrimSpace(email.Domain))
 		if name != "" && e.Session.Config().IsDomainInScope(name) {
 
-			if verified {
-				// add the email to the database, in return we will have an asset to add to the engine
-				emailAsset, _ = e.Session.DB().Create(nil, "", email)
-			} else {
-				// if the email is not verified, or an error occurs, make a new event
-				emailAsset = &dbt.Asset{
-					CreatedAt: now,
-					LastSeen:  now,
-					Asset:     email,
+			if e.Meta == nil {
+				meta = &et.EmailMeta{
+					VerifyAttempted: false,
+					Verified:        false,
 				}
-				// dispatch the event to the engine, it should go through verifiers
+			} else {
+				meta = e.Meta
+			}
+			if emailAsset, found := e.Session.Cache().GetAsset(email); !found {
+				if emailAsset == nil {
+					emailAsset = &dbt.Asset{
+						CreatedAt: now,
+						LastSeen:  now,
+						Asset:     email,
+					}
+				}
 				_ = e.Dispatcher.DispatchEvent(&et.Event{
 					Name:    email.Address,
+					Meta:    meta,
 					Asset:   emailAsset,
 					Session: e.Session,
 				})
+				e.Session.Cache().SetAsset(emailAsset)
+				// dispatch the event to the engine, it should go through verifiers
 			}
-			// add the email to the cache no matter what
-			e.Session.Cache().SetAsset(emailAsset)
+
 		}
 	}
-}
-
-func IsVerify(e *et.Event, name string) bool {
-	matches, err := e.Session.Config().CheckTransformations("email", "email", name)
-	if err != nil || matches.Len() == 0 {
-		return false
-	}
-	return true
 }
 
 func IPToNetblockWithAttempts(session et.Session, ip *oamnet.IPAddress, num int, d time.Duration) (*oamnet.Netblock, error) {

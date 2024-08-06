@@ -47,7 +47,7 @@ func (g *grepApp) Start(r et.Registry) error {
 	if err := r.RegisterHandler(&et.Handler{
 		Plugin:     g,
 		Name:       name,
-		Transforms: []string{"email"},
+		Transforms: []string{"emailaddress"},
 		EventType:  oam.FQDN,
 		Callback:   g.query,
 	}); err != nil {
@@ -67,6 +67,12 @@ func (g *grepApp) query(e *et.Event) error {
 	fqdn, ok := e.Asset.Asset.(*domain.FQDN)
 	if !ok {
 		return errors.New("invalid asset type")
+	}
+
+	matches, err := e.Session.Config().CheckTransformations(
+		"fqdn", "emailaddress", g.name)
+	if err != nil || matches.Len() == 0 {
+		return err
 	}
 
 	domlt := strings.ToLower(strings.TrimSpace(fqdn.Name))
@@ -129,6 +135,6 @@ func (g *grepApp) query(e *et.Event) error {
 
 	}
 
-	support.ProcessEmail(e, results, !support.IsVerify(e, g.name))
+	support.ProcessEmail(e, results)
 	return nil
 }
