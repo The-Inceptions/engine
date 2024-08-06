@@ -82,20 +82,25 @@ func (h *hunterIO) Stop() {
 func (h *hunterIO) verify(e *et.Event) error {
 	email, ok := e.Asset.Asset.(*contact.EmailAddress)
 	if !ok {
+		h.log.Error("Failed to extract the FQDN asset")
 		return errors.New("invalid asset type")
 	}
 
 	matches, err := e.Session.Config().CheckTransformations(
 		"emailaddress", "emailaddress", h.name+"-Email-Verification-Handler")
 	if err != nil || matches.Len() == 0 {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("No valid transformations: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Verification-Handler"))
+		return nil
 	}
 
 	h.rlimit.Take()
 
 	api, err := support.GetAPI(h.name, e)
 	if err != nil || api == "" {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("Failed to obtain the API key: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Verification-Handler"))
+		return nil
 	}
 
 	type responseJSON struct {
@@ -109,22 +114,28 @@ func (h *hunterIO) verify(e *et.Event) error {
 
 	resp, err := http.RequestWebPage(context.TODO(), &http.Request{URL: h.emailVerifierurl + email.Address + "&api_key=" + api})
 	if err != nil {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("Failed to make Verify request: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Verification-Handler"))
+		return nil
 	}
 
 	if err := json.NewDecoder(strings.NewReader(resp.Body)).Decode(&result); err != nil {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("Failed to decode JSON: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Verification-Handler"))
+		return nil
 	}
 
 	eventMeta, ok := e.Meta.(*et.EmailMeta)
 	if !ok {
-		return fmt.Errorf("unexpected Meta type: %T", e.Meta)
+		if e.Meta != nil {
+			return fmt.Errorf("unexpected Meta type: %T", e.Meta)
+		}
+		return nil
 	}
 	eventMeta.VerifyAttempted = true
 
-	// add it so that it skips risky
 	if result.Data.Status != "unknown" && result.Data.Status != "invalid" &&
-		result.Data.Status != "disposable" {
+		result.Data.Status != "disposable" && result.Data.Status != "accept_all" {
 		eventMeta.Verified = true
 	}
 
@@ -134,6 +145,7 @@ func (h *hunterIO) verify(e *et.Event) error {
 func (h *hunterIO) check(e *et.Event) error {
 	fqdn, ok := e.Asset.Asset.(*domain.FQDN)
 	if !ok {
+		h.log.Error("Failed to extract the FQDN asset")
 		return errors.New("invalid asset type")
 	}
 
@@ -142,21 +154,29 @@ func (h *hunterIO) check(e *et.Event) error {
 	matches, err := e.Session.Config().CheckTransformations(
 		"fqdn", "emailaddress", h.name+"-Email-Generation-Handler")
 	if err != nil || matches.Len() == 0 {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("No valid transformations: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Generation-Handler"))
+		return nil
 	}
 
 	h.rlimit.Take()
 	count, err := h.count(domlt)
 	if err != nil {
-		return err
+		e.Session.Log().Error(fmt.Sprintf("Failed to use the API count endpoint: %v", err),
+			slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Generation-Handler"))
+		return nil
 	} else {
 		api, err := h.account_type(e)
 		if err != nil || api == "" {
-			return err
+			e.Session.Log().Error(fmt.Sprintf("Failed to obtain the API key: %v", err),
+				slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Generation-Handler"))
+			return nil
 		}
 		results, err := h.query(domlt, count, api)
 		if err != nil {
-			return err
+			e.Session.Log().Error(fmt.Sprintf("Failed to query: %v", err),
+				slog.Group("plugin", "name", h.name, "handler", h.name+"-Email-Generation-Handler"))
+			return nil
 		}
 		support.ProcessEmail(e, results)
 	}
