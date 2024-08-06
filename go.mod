@@ -18,7 +18,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/miekg/dns v1.1.61
 	github.com/owasp-amass/asset-db v0.3.9
-	github.com/owasp-amass/config v0.3.0
+	github.com/owasp-amass/config v0.3.1
 	github.com/owasp-amass/open-asset-model v0.3.2
 	github.com/owasp-amass/resolve v0.8.0
 	github.com/rubenv/sql-migrate v1.7.0
